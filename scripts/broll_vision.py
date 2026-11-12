@@ -14,9 +14,11 @@
 Gemini (GEMINI_API_KEY, or the skill's .env) reads a sheet of 6 frames from the window the reel uses. Answers are
 cached in library/vision-cache/ by file, window, line and prompt version, so broll_qa.py (which runs the same check on
 the render's composition: checks `people` and `match`) costs nothing for shots already checked. A failed call is
-retried; if it still fails the shot is UNCHECKED, never passed. Model: BROLL_VISION_MODEL (default gemini-2.5-flash).
+retried; if it still fails the shot is UNCHECKED, never passed. Model: BROLL_VISION_MODEL (default gemini-flash-latest, falls back to gemini-flash-lite-latest).
 Rules: BROLL_PEOPLE_RULES (default people-rules.json next to SKILL.md); a change to the rules re-asks every shot.
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))  # noqa: E401
+import gemini_models as gm  # noqa: E402  (models + fallback: scripts/gemini_models.py)
 import argparse
 import hashlib
 import json
@@ -36,7 +38,7 @@ import grade_lib as G  # noqa: E402
 
 CACHE = os.path.join(HERE, "..", "library", "vision-cache")
 PROMPT_V = 2
-MODEL = os.environ.get("BROLL_VISION_MODEL", "gemini-2.5-flash")
+MODEL = os.environ.get("BROLL_VISION_MODEL", gm.PRIMARY)
 STILL = re.compile(r"\.(jpe?g|png|webp|heic)$", re.I)
 
 RULES_PATH = os.environ.get("BROLL_PEOPLE_RULES") or os.path.join(HERE, "..", "people-rules.json")
@@ -93,7 +95,7 @@ def client():
             if not key:
                 raise RuntimeError("no GEMINI_API_KEY (env or the skill's .env)")
             c = genai.Client(api_key=key)
-            c.models.generate_content(model=MODEL, contents="Reply with the single word ok.")   # key check, one call
+            gm.generate(c, model=MODEL, contents="Reply with the single word ok.")   # key check, one call
             _client = c
         return _client
 
@@ -184,7 +186,7 @@ def _check(path, tin=0.0, dur=None, line=None):
         return {"error": f"frames: {e}"}
     prompt = PROMPT.format(n=len(fr), line_part=LINE_PART.format(line=line) if line else "")
     err = None
-    models = [MODEL] + [m for m in ("gemini-2.5-pro",) if m != MODEL]
+    models = gm.chain(MODEL)
     for wait in (0, 3, 8, 20):
         time.sleep(wait)
         model = models[0]
@@ -192,7 +194,7 @@ def _check(path, tin=0.0, dur=None, line=None):
             from google.genai import types
             safe = [types.SafetySetting(category=c, threshold="BLOCK_NONE") for c in
                     ("HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT")]
-            r = client().models.generate_content(model=model, contents=[types.Part.from_bytes(data=buf.tobytes(), mime_type="image/jpeg"), prompt],
+            r = gm.generate(client(), model=model, contents=[types.Part.from_bytes(data=buf.tobytes(), mime_type="image/jpeg"), prompt],
                                                  config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0,
                                                                                     safety_settings=safe))
             if not r.text:          # blocked: try the other model once, then give the reason (no retry loop)
@@ -270,7 +272,7 @@ def still_motion(path):
         time.sleep(wait)
         try:
             from google.genai import types
-            r = client().models.generate_content(model=MODEL, contents=[types.Part.from_bytes(data=buf.tobytes(), mime_type="image/jpeg"), MOTION_PROMPT],
+            r = gm.generate(client(), model=MODEL, contents=[types.Part.from_bytes(data=buf.tobytes(), mime_type="image/jpeg"), MOTION_PROMPT],
                                                  config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0))
             j = json.loads(r.text or "")
             if isinstance(j, list) and j:

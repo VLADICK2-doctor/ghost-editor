@@ -53,10 +53,12 @@ k = os.environ.get("GEMINI_API_KEY")
 if not k:
     m = re.search(r"GEMINI_API_KEY\s*=\s*['\"]?([^'\"\n]+)", open(os.path.join(os.environ["S"], ".env")).read())
     k = m.group(1).strip()
+import sys; sys.path.insert(0, os.path.join(os.environ["S"], "scripts")); import gemini_models as gm
 c = genai.Client(api_key=k, http_options=types.HttpOptions(timeout=30000))
-print((c.models.generate_content(model="gemini-2.5-flash", contents="Reply with the single word ok.").text or "").strip()[:20])
+print((gm.generate(c, model=gm.PRIMARY, contents="Reply with the single word ok.").text or "").strip()[:20])
 PYEOF
 )
+  r=${r##*$'\n'}   # last line: a model-fallback notice may come first
   case "$r" in [Oo]k*) pass "GEMINI_API_KEY works (one test call)";;
     *) r=${r##*$'\n'}; fail "GEMINI_API_KEY is set but the test call failed: ${r:0:140}" "check the key at aistudio.google.com/apikey (env or $S/.env)";; esac
 else fail "GEMINI_API_KEY (insert_prep.py, broll_vision.py, broll_qa.py people/match: unchecked shots fail)" "export GEMINI_API_KEY=... or put GEMINI_API_KEY=... in $S/.env (free key: aistudio.google.com/apikey)"; fi

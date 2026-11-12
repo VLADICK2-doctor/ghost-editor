@@ -15,6 +15,8 @@ Every download: no image under 1080 px on the short side (--min-image lower only
 the row then says "small_frame_only"), and the people check (broll_vision.py check against people-rules.json; tiny
 background figures count). A FAIL or unchecked row stays out of the edit.
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))  # noqa: E401
+import gemini_models as gm  # noqa: E402  (models + fallback: scripts/gemini_models.py)
 import json, os, re, subprocess, sys, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,16 +46,19 @@ def translate(q, to):
     body = {"contents": [{"parts": [{"text": f"Translate this image-search query into {lang} as a natural search query "
                                               f"a native speaker would type. Proper names (villages, peoples, languages, people) are transliterated exactly, "
                                               f"never swapped for a similar-sounding name. Answer with the query only.\n\n{q}"}]}],
-            "generationConfig": {"temperature": 0, "thinkingConfig": {"thinkingBudget": 0}}}
-    req = urllib.request.Request(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-        data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "x-goog-api-key": key})
-    try:
-        j = json.load(urllib.request.urlopen(req, timeout=60))
-        return j["candidates"][0]["content"]["parts"][0]["text"].strip().strip('"').splitlines()[0]
-    except Exception as e:                                  # a missing translation only narrows the search
-        print(f"(translation to {lang} failed: {str(e)[:80]}; searching one language)")
-        return None
+            "generationConfig": {"temperature": 0}}   # no thinkingBudget 0: gemini 3.x models reject it
+    for model in gm.chain():                                # gemini-flash-latest, then the lite model if unavailable
+        req = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "x-goog-api-key": key})
+        try:
+            j = json.load(urllib.request.urlopen(req, timeout=60))
+            return j["candidates"][0]["content"]["parts"][0]["text"].strip().strip('"').splitlines()[0]
+        except Exception as e:                              # a missing translation only narrows the search
+            if gm.unavailable(e) and model != gm.chain()[-1]:
+                continue
+            print(f"(translation to {lang} failed: {str(e)[:80]}; searching one language)")
+            return None
 
 
 def both(q, other=None):

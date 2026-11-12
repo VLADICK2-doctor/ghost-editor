@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reverse-engineer a reference edit you want to match.
 
-    reference_study.py <edited.mp4> --out <dir> [--model gemini-2.5-pro] [--raw raw.mp4]
+    reference_study.py <edited.mp4> --out <dir> [--model gemini-flash-latest] [--raw raw.mp4]
 
 Writes into <dir>:
   sheet.jpg          1 frame per second, timestamped (look at it first)
@@ -17,6 +17,8 @@ Needs GEMINI_API_KEY (env or <skill>/.env) and google-genai. The key is
 validated with one cheap call first; transient errors retry twice; an error
 is never written as if it were analysis.
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))  # noqa: E401
+import gemini_models as gm  # noqa: E402  (models + fallback: scripts/gemini_models.py)
 import argparse
 import datetime
 import os
@@ -38,7 +40,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--model", default="gemini-2.5-pro")
+    ap.add_argument("--model", default=gm.PRIMARY)
     ap.add_argument("--raw")
     a = ap.parse_args()
     os.makedirs(os.path.join(a.out, "frames"), exist_ok=True)
@@ -59,7 +61,7 @@ def main():
 
     from google import genai
     client = genai.Client(api_key=key())
-    ping = client.models.generate_content(model="gemini-2.5-flash", contents="Reply with the single word: ok")
+    ping = gm.generate(client, model=gm.PRIMARY, contents="Reply with the single word: ok")
     if not (ping.text or "").strip():
         sys.exit("Gemini key check failed (empty reply); not running the analysis")
     prompt = open(os.path.join(SKILL, "references", "reference-study-prompt.md")).read()
@@ -74,7 +76,7 @@ def main():
     last = None
     for attempt in range(3):
         try:
-            r = client.models.generate_content(model=a.model, contents=[f, prompt])
+            r = gm.generate(client, model=a.model, contents=[f, prompt])
             text = r.text or ""
             if len(text) < 500:
                 raise RuntimeError(f"suspiciously short reply ({len(text)} chars)")

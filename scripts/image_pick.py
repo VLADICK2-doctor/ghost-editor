@@ -27,6 +27,8 @@ ones (up to 4) are shown side by side at phone size and the model picks the fast
 licence and size. Below 4: the line is FLAGGED and
 gets no picture unless the user says otherwise. Rows keep "scores": {<line id>: {...}} and the brief keeps "pick"/"flag".
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))  # noqa: E401
+import gemini_models as gm  # noqa: E402  (models + fallback: scripts/gemini_models.py)
 import argparse, glob, hashlib, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -34,7 +36,7 @@ sys.path.insert(0, HERE)
 import image_sources as I  # noqa: E402
 from broll_fetch import load, save  # noqa: E402
 
-MODEL = os.environ.get("IMAGE_PICK_MODEL", "gemini-2.5-pro")
+MODEL = os.environ.get("IMAGE_PICK_MODEL", gm.PRIMARY)
 PY = sys.executable
 _client = None
 
@@ -54,7 +56,7 @@ def ask_json(parts, schema):
     from google.genai import types
     for attempt in range(3):
         try:
-            r = client().models.generate_content(model=MODEL, contents=parts, config=types.GenerateContentConfig(
+            r = gm.generate(client(), model=MODEL, contents=parts, config=types.GenerateContentConfig(
                 temperature=0, response_mime_type="application/json", response_schema=schema))
             return json.loads(r.text)
         except Exception as e:                                # retried; a failure leaves the row unscored, never passed

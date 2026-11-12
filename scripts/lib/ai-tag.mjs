@@ -3,7 +3,7 @@
 // caption-templates.mjs turns them into CSS classes (kw for the top word of each caption group,
 // t-<tag> for every tag) so a template can style or animate them.
 //
-//   node ai-tag.mjs <words.json> [--out tags.json] [--model gemini-2.5-flash]
+//   node ai-tag.mjs <words.json> [--out tags.json] [--model gemini-flash-latest]
 //   import { aiTag } from "./ai-tag.mjs";  const ai = await aiTag(words, { cache: "build/ai-tags.json" });
 //
 // words.json: whisper json (segments[].words[]) or a flat [{word,start,end}] array.
@@ -13,17 +13,32 @@ import crypto from "node:crypto";
 
 const API = "https://generativelanguage.googleapis.com/v1beta/models";
 export const AI_TAGS = ["emotion", "number", "name", "negation", "action", "contrast"];
+// same models as scripts/gemini_models.py: the gemini-2.5-* models are retired for new keys
+export const PRIMARY = process.env.GEMINI_MODEL || "gemini-flash-latest";
+export const FALLBACK = process.env.GEMINI_FALLBACK_MODEL || "gemini-flash-lite-latest";
+const UNAVAILABLE = new Set([404, 429, 500, 502, 503, 504]);
 
-async function call(model, key, body) {
+async function callOnce(model, key, body) {
   const r = await fetch(`${API}/${model}:generateContent`, { method: "POST", headers: { "x-goog-api-key": key, "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const j = await r.json();
-  if (j.error) throw new Error(`Gemini ${model}: ${j.error.status || ""} ${j.error.message}`);
+  const j = await r.json().catch(() => ({ error: { code: r.status, message: `HTTP ${r.status}` } }));
+  if (j.error) throw Object.assign(new Error(`Gemini ${model}: ${j.error.status || ""} ${j.error.message}`), { code: j.error.code || r.status });
   return j.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") ?? "";
 }
 
-export async function validateKey(key = process.env.GEMINI_API_KEY, model = "gemini-2.5-flash") {
+// the model, then FALLBACK when the model is unavailable (retired, overloaded, out of quota, gateway error)
+async function call(model, key, body) {
+  try {
+    return await callOnce(model, key, body);
+  } catch (e) {
+    if (model === FALLBACK || !UNAVAILABLE.has(e.code)) throw e;
+    console.error(`(gemini: ${model} unavailable: ${String(e.message).slice(0, 100)}; falling back to ${FALLBACK})`);
+    return callOnce(FALLBACK, key, body);
+  }
+}
+
+export async function validateKey(key = process.env.GEMINI_API_KEY, model = PRIMARY) {
   if (!key) throw new Error("GEMINI_API_KEY is not set");
-  const t = await call(model, key, { contents: [{ parts: [{ text: "Reply with: ok" }] }], generationConfig: { maxOutputTokens: 5, thinkingConfig: { thinkingBudget: 0 } } });
+  const t = await call(model, key, { contents: [{ parts: [{ text: "Reply with: ok" }] }], generationConfig: { maxOutputTokens: 512 } /* thinking can no longer be turned off (gemini 3.x) */ });
   if (!/ok/i.test(t)) throw new Error(`Gemini key check returned '${t}'`);
   return true;
 }
@@ -38,7 +53,7 @@ Return a JSON array with one object per word in order: {"i": index, "s": score, 
 
 ${lines}`;
 
-export async function aiTag(words, { model = "gemini-2.5-flash", key = process.env.GEMINI_API_KEY, cache } = {}) {
+export async function aiTag(words, { model = PRIMARY, key = process.env.GEMINI_API_KEY, cache } = {}) {
   const flat = words.map((w) => String(w.word ?? w.text ?? "").trim());
   const hash = crypto.createHash("sha1").update(model + "\n" + flat.join(" ")).digest("hex").slice(0, 16);
   if (cache && fs.existsSync(cache)) {
@@ -70,9 +85,9 @@ export function loadWords(file) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const [file] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
   const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
-  if (!file) { console.error("usage: node ai-tag.mjs <words.json> [--out tags.json] [--model gemini-2.5-flash]"); process.exit(1); }
+  if (!file) { console.error("usage: node ai-tag.mjs <words.json> [--out tags.json] [--model gemini-flash-latest]"); process.exit(1); }
   const out = arg("--out", "ai-tags.json");
-  const res = await aiTag(loadWords(file), { model: arg("--model", "gemini-2.5-flash"), cache: out });
+  const res = await aiTag(loadWords(file), { model: arg("--model", PRIMARY), cache: out });
   console.log(res.map((x) => (x.score >= 2 ? `[${x.w}${x.score === 3 ? "!" : ""}]` : x.w)).join(" "));
   console.log("->", out);
 }

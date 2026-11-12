@@ -27,6 +27,8 @@ marks, shown to name the thing being reviewed (references/broll.md 3).
 In a reel: product-page accent=kit["accent_on_white"]; a reel.json logo chip "src": "brand/logo.svg"; fonts.css next to
 the composition's own fonts; shots go through insert_prep.py like any other picture.
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))  # noqa: E401
+import gemini_models as gm  # noqa: E402  (models + fallback: scripts/gemini_models.py)
 import argparse, collections, colorsys, html, json, os, re, shutil, subprocess, sys, tempfile, time, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,7 +46,7 @@ import image_sources as I  # noqa: E402
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
       "Chrome/131.0.0.0 Safari/537.36")
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-MODEL = os.environ.get("BRAND_KIT_MODEL", "gemini-2.5-flash")
+MODEL = os.environ.get("BRAND_KIT_MODEL", gm.PRIMARY)
 CACHE = os.path.expanduser("~/.cache/brand_kit")
 PAGE_BG = "#FDFDFD"                                           # product-page white (recipes/product-page/house.json)
 GENERIC = {"sans-serif", "serif", "monospace", "system-ui", "-apple-system", "blinkmacsystemfont", "ui-sans-serif",
@@ -385,7 +387,7 @@ def gem_pick(name, cands, renders):
               "required": ["logo", "icon", "reason"]}
     for attempt in range(3):
         try:
-            r = cl.models.generate_content(model=MODEL, contents=parts, config=types.GenerateContentConfig(
+            r = gm.generate(cl, model=MODEL, contents=parts, config=types.GenerateContentConfig(
                 temperature=0, response_mime_type="application/json", response_schema=schema))
             return json.loads(r.text), None
         except Exception as e:

@@ -12,6 +12,8 @@ attempts uploads a 540x960 copy when the video is bigger (a whole recording; mad
 Caveats: the 5 fps pass reads blinks and wide/tight switches as glances, and the audio pass reads crisp word onsets after
 silence as clicks; its sub-second timestamps are loose. Verify every flag against frames (eyestrip.py) and energy before
 acting on it. It does catch real restarts that whisper merged."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))  # noqa: E401
+import gemini_models as gm  # noqa: E402  (models + fallback: scripts/gemini_models.py)
 import argparse, json, os, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from broll_gen import key
@@ -60,7 +62,7 @@ def client():
 
 
 def check(cl):
-    r = cl.models.generate_content(model="gemini-2.5-flash", contents="Reply with the single word: ok")
+    r = gm.generate(cl, model=gm.PRIMARY, contents="Reply with the single word: ok")
     if not (r.text or "").strip(): sys.exit("Gemini key check failed")
     print("key ok:", r.text.strip(), flush=True)
 
@@ -94,7 +96,7 @@ def generate(cl, types, contents, minlen, temperature=0.2, max_tokens=60000):
     last = None
     for attempt in range(4):
         try:
-            r = cl.models.generate_content(model="gemini-2.5-pro", contents=contents,
+            r = gm.generate(cl, model=gm.PRIMARY, contents=contents,
                                            config=types.GenerateContentConfig(temperature=temperature, max_output_tokens=max_tokens))
             text = r.text or ""
             if len(text) < minlen: raise RuntimeError(f"short reply ({len(text)} chars)")
